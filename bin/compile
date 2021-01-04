@@ -222,18 +222,18 @@ install_bins() {
   # Download yarn if there is a yarn.lock file or if the user
   # has specified a version of yarn under "engines". We'll still
   # only install using yarn if there is a yarn.lock file
-  if $YARN || [ -n "$yarn_engine" ]; then
+#  if $YARN || [ -n "$yarn_engine" ]; then
     meta_set "build-step" "install-yarn"
     monitor "install-yarn-binary" install_yarn "$BUILD_DIR/.heroku/yarn" "$yarn_engine"
-  fi
+#  fi
 
-  if $YARN; then
+#  if $YARN; then
     mcount "version.yarn.$(yarn --version)"
     meta_set "yarn-version" "$(yarn --version)"
-  else
-    mcount "version.npm.$(npm --version)"
-    meta_set "npm-version" "$(npm --version)"
-  fi
+#  else
+#    mcount "version.npm.$(npm --version)"
+#    meta_set "npm-version" "$(npm --version)"
+#  fi
 
   warn_old_npm
 
@@ -245,163 +245,163 @@ install_bins() {
 header "Installing binaries" | output "$LOG_FILE"
 install_bins | output "$LOG_FILE"
 
-restore_cache() {
-  local cache_status cache_directories restore_cache_start_time
-  restore_cache_start_time=$(nowms)
-
-  cache_status="$(get_cache_status "$CACHE_DIR")"
-  cache_directories="$(get_cache_directories "$BUILD_DIR")"
-
-  if $YARN; then
-    if $PREBUILD && [[ "$SKIP_NODE_MODULES_CHECK" == "true" ]]; then
-      echo "Keeping existing node_modules because SKIP_NODE_MODULES_CHECK=${SKIP_NODE_MODULES_CHECK}"
-    elif $PREBUILD; then
-      warn "node_modules checked into source control" "https://devcenter.heroku.com/articles/node-best-practices#only-git-the-important-bits"
-      rm -rf "$BUILD_DIR/node_modules"
-    fi
-  fi
-
-  if [[ "$cache_status" == "disabled" ]]; then
-    header "Restoring cache"
-    echo "Caching has been disabled because NODE_MODULES_CACHE=${NODE_MODULES_CACHE}"
-  elif [[ "$cache_status" == "valid" ]]; then
-    header "Restoring cache"
-    if [[ "$cache_directories" == "" ]]; then
-      restore_default_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$YARN_CACHE_FOLDER"
-    else
-      restore_custom_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$cache_directories"
-    fi
-  elif [[ "$cache_status" == "new-signature" ]]; then
-    header "Restoring cache"
-    if [[ "$cache_directories" == "" ]]; then
-      echo "Cached directories were not restored due to a change in version of node, npm, yarn or stack"
-      echo "Module installation may take longer for this build"
-    else
-      # If the user has specified custom cache directories, be more explicit
-      echo "Invalidating cache due to a change in version of node, npm, yarn or stack"
-      echo "Will not restore the following directories for this build:"
-      for directory in $cache_directories; do
-        echo "  $directory"
-      done
-    fi
-  else
-    # No cache exists, be silent
-    :
-  fi
-
-  mcount "cache.$cache_status"
-  meta_set "cache-status" "$cache_status"
-  meta_time "restore-cache-time" "$restore_cache_start_time"
-}
-
-meta_set "build-step" "restore-cache"
-restore_cache | output "$LOG_FILE"
-
-build_dependencies() {
-  local cache_status start
-
-  cache_status="$(get_cache_status "$CACHE_DIR")"
-  start=$(nowms)
-  if [[ "$YARN_2" == "true" ]]; then
-    yarn_2_install "$BUILD_DIR"
-  elif $YARN; then
-    yarn_node_modules "$BUILD_DIR"
-  elif $PREBUILD; then
-    echo "Prebuild detected (node_modules already exists)"
-    npm_rebuild "$BUILD_DIR"
-  else
-    npm_node_modules "$BUILD_DIR"
-  fi
-
-  mtime "modules.time.cache.$cache_status" "${start}"
-
-  meta_set "build-step" "build-script"
-  header "Build"
-  run_build_script "$BUILD_DIR"
-}
-
-meta_set "build-step" "install-dependencies"
-log_build_scripts "$BUILD_DIR"
-run_prebuild_script "$BUILD_DIR" | output "$LOG_FILE"
-header "Installing dependencies" | output "$LOG_FILE"
-build_dependencies | output "$LOG_FILE"
-
-cache_build() {
-  local cache_directories cache_build_start_time
-  cache_build_start_time=$(nowms)
-  cache_directories="$(get_cache_directories "$BUILD_DIR")"
-
-  clear_cache "$CACHE_DIR"
-  if ! ${NODE_MODULES_CACHE:-true}; then
-    # we've already warned that caching is disabled in the restore step
-    # so be silent here
-    :
-  elif [[ "$cache_directories" == "" ]]; then
-    header "Caching build"
-    save_default_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$YARN_CACHE_FOLDER"
-  else
-    header "Caching build"
-    save_custom_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$cache_directories"
-  fi
-  save_signature "$CACHE_DIR"
-  meta_time "save-cache-time" "$cache_build_start_time"
-}
-
-prune_devdependencies() {
-  if $YARN; then
-    yarn_prune_devdependencies "$BUILD_DIR"
-  else
-    npm_prune_devdependencies "$BUILD_DIR"
-  fi
-}
-
-# if we are using yarn
-#   and in the new feature
-#   and we're using the default cache directories
-# then save off the cache after we prune out devDepenencies
-if [[ "$YARN_2" == "true" ]]; then
-  cache_build | output "$LOG_FILE"
-  meta_set "build-step" "prune-dependencies"
-  meta_set "build-step" "save-cache"
-elif [[ "$YARN" == "true" ]] && [[ "$USE_YARN_CACHE" == "true" ]] && [[ "$(get_cache_directories "$BUILD_DIR")" == "" ]]; then
-  meta_set "build-step" "prune-dependencies"
-  header "Pruning devDependencies" | output "$LOG_FILE"
-  prune_devdependencies | output "$LOG_FILE"
-  meta_set "build-step" "save-cache"
-  cache_build | output "$LOG_FILE"
-else
-  meta_set "build-step" "save-cache"
-  cache_build | output "$LOG_FILE"
-  meta_set "build-step" "prune-dependencies"
-  header "Pruning devDependencies" | output "$LOG_FILE"
-  prune_devdependencies | output "$LOG_FILE"
-fi
-
-meta_set "build-step" "cleanup-script"
-run_cleanup_script "$BUILD_DIR" | output "$LOG_FILE"
-
-summarize_build() {
-  if $NODE_VERBOSE; then
-    list_dependencies "$BUILD_DIR"
-  fi
-
-  mmeasure 'modules.size' "$(measure_size)"
-  meta_set "node-modules-size" "$(measure_size)"
-}
-
-meta_set "build-step" "install-metrics-plugin"
-install_plugin "$BP_DIR" "$BUILD_DIR"
-
-meta_set "build-step" "summarize"
-header "Build succeeded!" | output "$LOG_FILE"
-mcount "compile"
-summarize_build | output "$LOG_FILE"
-meta_set "node-build-success" "true"
-meta_time "build-time" "$build_start_time"
-
-warn_no_start "$BUILD_DIR"
-warn_unmet_dep "$LOG_FILE"
-warn_old_npm_lockfile $NPM_LOCK
-
-meta_set "build-step" "finished"
-log_meta_data >> "$BUILDPACK_LOG_FILE"
+#restore_cache() {
+#  local cache_status cache_directories restore_cache_start_time
+#  restore_cache_start_time=$(nowms)
+#
+#  cache_status="$(get_cache_status "$CACHE_DIR")"
+#  cache_directories="$(get_cache_directories "$BUILD_DIR")"
+#
+#  if $YARN; then
+#    if $PREBUILD && [[ "$SKIP_NODE_MODULES_CHECK" == "true" ]]; then
+#      echo "Keeping existing node_modules because SKIP_NODE_MODULES_CHECK=${SKIP_NODE_MODULES_CHECK}"
+#    elif $PREBUILD; then
+#      warn "node_modules checked into source control" "https://devcenter.heroku.com/articles/node-best-practices#only-git-the-important-bits"
+#      rm -rf "$BUILD_DIR/node_modules"
+#    fi
+#  fi
+#
+#  if [[ "$cache_status" == "disabled" ]]; then
+#    header "Restoring cache"
+#    echo "Caching has been disabled because NODE_MODULES_CACHE=${NODE_MODULES_CACHE}"
+#  elif [[ "$cache_status" == "valid" ]]; then
+#    header "Restoring cache"
+#    if [[ "$cache_directories" == "" ]]; then
+#      restore_default_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$YARN_CACHE_FOLDER"
+#    else
+#      restore_custom_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$cache_directories"
+#    fi
+#  elif [[ "$cache_status" == "new-signature" ]]; then
+#    header "Restoring cache"
+#    if [[ "$cache_directories" == "" ]]; then
+#      echo "Cached directories were not restored due to a change in version of node, npm, yarn or stack"
+#      echo "Module installation may take longer for this build"
+#    else
+#      # If the user has specified custom cache directories, be more explicit
+#      echo "Invalidating cache due to a change in version of node, npm, yarn or stack"
+#      echo "Will not restore the following directories for this build:"
+#      for directory in $cache_directories; do
+#        echo "  $directory"
+#      done
+#    fi
+#  else
+#    # No cache exists, be silent
+#    :
+#  fi
+#
+#  mcount "cache.$cache_status"
+#  meta_set "cache-status" "$cache_status"
+#  meta_time "restore-cache-time" "$restore_cache_start_time"
+#}
+#
+#meta_set "build-step" "restore-cache"
+#restore_cache | output "$LOG_FILE"
+#
+#build_dependencies() {
+#  local cache_status start
+#
+#  cache_status="$(get_cache_status "$CACHE_DIR")"
+#  start=$(nowms)
+#  if [[ "$YARN_2" == "true" ]]; then
+#    yarn_2_install "$BUILD_DIR"
+#  elif $YARN; then
+#    yarn_node_modules "$BUILD_DIR"
+#  elif $PREBUILD; then
+#    echo "Prebuild detected (node_modules already exists)"
+#    npm_rebuild "$BUILD_DIR"
+#  else
+#    npm_node_modules "$BUILD_DIR"
+#  fi
+#
+#  mtime "modules.time.cache.$cache_status" "${start}"
+#
+#  meta_set "build-step" "build-script"
+#  header "Build"
+#  run_build_script "$BUILD_DIR"
+#}
+#
+#meta_set "build-step" "install-dependencies"
+#log_build_scripts "$BUILD_DIR"
+#run_prebuild_script "$BUILD_DIR" | output "$LOG_FILE"
+#header "Installing dependencies" | output "$LOG_FILE"
+#build_dependencies | output "$LOG_FILE"
+#
+#cache_build() {
+#  local cache_directories cache_build_start_time
+#  cache_build_start_time=$(nowms)
+#  cache_directories="$(get_cache_directories "$BUILD_DIR")"
+#
+#  clear_cache "$CACHE_DIR"
+#  if ! ${NODE_MODULES_CACHE:-true}; then
+#    # we've already warned that caching is disabled in the restore step
+#    # so be silent here
+#    :
+#  elif [[ "$cache_directories" == "" ]]; then
+#    header "Caching build"
+#    save_default_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$YARN_CACHE_FOLDER"
+#  else
+#    header "Caching build"
+#    save_custom_cache_directories "$BUILD_DIR" "$CACHE_DIR" "$cache_directories"
+#  fi
+#  save_signature "$CACHE_DIR"
+#  meta_time "save-cache-time" "$cache_build_start_time"
+#}
+#
+#prune_devdependencies() {
+#  if $YARN; then
+#    yarn_prune_devdependencies "$BUILD_DIR"
+#  else
+#    npm_prune_devdependencies "$BUILD_DIR"
+#  fi
+#}
+#
+## if we are using yarn
+##   and in the new feature
+##   and we're using the default cache directories
+## then save off the cache after we prune out devDepenencies
+#if [[ "$YARN_2" == "true" ]]; then
+#  cache_build | output "$LOG_FILE"
+#  meta_set "build-step" "prune-dependencies"
+#  meta_set "build-step" "save-cache"
+#elif [[ "$YARN" == "true" ]] && [[ "$USE_YARN_CACHE" == "true" ]] && [[ "$(get_cache_directories "$BUILD_DIR")" == "" ]]; then
+#  meta_set "build-step" "prune-dependencies"
+#  header "Pruning devDependencies" | output "$LOG_FILE"
+#  prune_devdependencies | output "$LOG_FILE"
+#  meta_set "build-step" "save-cache"
+#  cache_build | output "$LOG_FILE"
+#else
+#  meta_set "build-step" "save-cache"
+#  cache_build | output "$LOG_FILE"
+#  meta_set "build-step" "prune-dependencies"
+#  header "Pruning devDependencies" | output "$LOG_FILE"
+#  prune_devdependencies | output "$LOG_FILE"
+#fi
+#
+#meta_set "build-step" "cleanup-script"
+#run_cleanup_script "$BUILD_DIR" | output "$LOG_FILE"
+#
+#summarize_build() {
+#  if $NODE_VERBOSE; then
+#    list_dependencies "$BUILD_DIR"
+#  fi
+#
+#  mmeasure 'modules.size' "$(measure_size)"
+#  meta_set "node-modules-size" "$(measure_size)"
+#}
+#
+#meta_set "build-step" "install-metrics-plugin"
+#install_plugin "$BP_DIR" "$BUILD_DIR"
+#
+#meta_set "build-step" "summarize"
+#header "Build succeeded!" | output "$LOG_FILE"
+#mcount "compile"
+#summarize_build | output "$LOG_FILE"
+#meta_set "node-build-success" "true"
+#meta_time "build-time" "$build_start_time"
+#
+#warn_no_start "$BUILD_DIR"
+#warn_unmet_dep "$LOG_FILE"
+#warn_old_npm_lockfile $NPM_LOCK
+#
+#meta_set "build-step" "finished"
+#log_meta_data >> "$BUILDPACK_LOG_FILE"
